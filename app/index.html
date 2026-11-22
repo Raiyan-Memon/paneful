@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Editor · Paneful</title>
+  <meta name="description" content="Make App Store and Google Play screenshots in your browser. Free, no signup.">
+  <meta name="theme-color" content="#0B0B0C">
+  <link rel="icon" href="../assets/img/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="../assets/img/apple-touch-icon.png">
+  <link rel="stylesheet" href="../assets/css/fonts.css">
+  <link rel="stylesheet" href="../assets/css/base.css">
+  <link rel="stylesheet" href="../assets/css/app.css">
+</head>
+<body>
+  <header class="top">
+    <a class="logo" href="../" title="Paneful home">
+      <svg viewBox="0 0 32 32" fill="none" aria-hidden="true"><rect x="11.5" y="2.5" width="16.5" height="23.5" rx="4.5" stroke="#7FA88A" stroke-width="2.2"/><rect x="4" y="6" width="17" height="24" rx="4.5" fill="#F2F1EE"/><rect x="9.5" y="9.2" width="6" height="1.8" rx=".9" fill="#0B0B0C"/></svg>
+      paneful
+    </a>
+    <div class="top-mid">
+      <label class="size-pick" title="Preview size">
+        <span class="size-ic" id="sizeIc"></span>
+        <select id="size" aria-label="Preview size"></select>
+      </label>
+      <span class="count" id="slideCount"></span>
+    </div>
+    <div class="top-right">
+      <span class="save" id="saveState" aria-live="polite">Saved</span>
+      <button class="icon-btn" id="undo" title="Undo (Ctrl+Z)" aria-label="Undo"></button>
+      <button class="icon-btn" id="redo" title="Redo (Ctrl+Shift+Z)" aria-label="Redo"></button>
+      <div class="menu-wrap">
+        <button class="icon-btn" id="menuBtn" title="More" aria-label="More options" aria-haspopup="true"></button>
+        <div class="menu" id="menu" role="menu">
+          <button data-act="new" role="menuitem">New project</button>
+          <button data-act="demo" role="menuitem">Load demo project</button>
+          <div class="menu-sep"></div>
+          <button data-act="saveFile" role="menuitem">Save project file…</button>
+          <button data-act="openFile" role="menuitem">Open project file…</button>
+          <div class="menu-sep"></div>
+          <button data-act="keys" role="menuitem">Keyboard shortcuts</button>
+        </div>
+      </div>
+      <button class="btn btn-ghost topbtn" id="previewBtn" title="See it in the App Store and Google Play"></button>
+      <button class="btn btn-ghost topbtn" id="checkBtn" title="Pre-flight check"></button>
+      <button class="btn btn-primary" id="exportBtn"></button>
+    </div>
+  </header>
+
+  <div class="narrow-note" id="narrowNote">Paneful works best on a computer. You can still look around here.</div>
+
+  <main class="main">
+    <nav class="rail" id="rail" aria-label="Panels"></nav>
+    <aside class="panel" id="panel" aria-live="off"></aside>
+    <section class="stage" id="stage">
+      <div class="strip" id="strip"></div>
+      <div class="drop-hint" id="dropHint"><div>Drop screenshots to add slides</div></div>
+      <p class="stage-tip">Drag the text or phone to move it · Double-click the phone to change its screenshot · Paste an image with Ctrl+V</p>
+    </section>
+  </main>
+
+  <!-- export -->
+  <div class="modal" id="exportModal" role="dialog" aria-modal="true" aria-labelledby="exTitle">
+    <div class="sheet">
+      <div class="sheet-head">
+        <h2 id="exTitle">Export screenshots</h2>
+        <button class="icon-btn" data-close aria-label="Close"></button>
+      </div>
+      <div class="sheet-body" id="exBody"></div>
+      <div class="sheet-foot">
+        <div class="progress" id="exProgress"><div class="bar"><i id="exBar"></i></div><span id="exText"></span></div>
+        <button class="btn" id="exOne">Current slide (PNG)</button>
+        <button class="btn btn-primary" id="exGo">Download ZIP</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- store preview -->
+  <div class="modal" id="previewModal" role="dialog" aria-modal="true" aria-labelledby="pvTitle">
+    <div class="sheet sheet-xl">
+      <div class="sheet-head"><h2 id="pvTitle">Store preview</h2><button class="icon-btn" data-close aria-label="Close"></button></div>
+      <div class="pv" id="pvBody"></div>
+    </div>
+  </div>
+
+  <!-- pre-flight check -->
+  <div class="modal" id="checkModal" role="dialog" aria-modal="true" aria-labelledby="ckTitle">
+    <div class="sheet">
+      <div class="sheet-head"><h2 id="ckTitle">Pre-flight check</h2><button class="icon-btn" data-close aria-label="Close"></button></div>
+      <div class="sheet-body" id="ckBody"></div>
+      <div class="sheet-foot"><button class="btn" id="ckRecheck">Check again</button><button class="btn btn-primary" id="ckFixAll">Fix all</button></div>
+    </div>
+  </div>
+
+  <!-- confirm / info -->
+  <div class="modal" id="dialog" role="dialog" aria-modal="true" aria-labelledby="dlgTitle">
+    <div class="sheet sheet-sm">
+      <div class="sheet-head"><h2 id="dlgTitle"></h2><button class="icon-btn" data-close aria-label="Close"></button></div>
+      <div class="sheet-body" id="dlgBody"></div>
+      <div class="sheet-foot"><button class="btn" id="dlgCancel">Cancel</button><button class="btn btn-primary" id="dlgOk">OK</button></div>
+    </div>
+  </div>
+
+  <input type="file" id="fileInput" accept="image/png,image/jpeg,image/webp,image/gif,image/avif" multiple hidden>
+  <input type="file" id="projInput" accept=".json,application/json" hidden>
+  <div class="toast" id="toast" role="status"></div>
+
+  <script src="../assets/lib/jszip.min.js"></script>
+  <script src="../assets/js/engine.js"></script>
+  <script src="../assets/js/themes.js"></script>
+  <script src="../assets/js/demo.js"></script>
+  <script src="../assets/js/extras.js"></script>
+  <script src="../assets/js/app.js"></script>
+</body>
+</html>
