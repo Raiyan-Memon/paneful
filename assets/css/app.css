@@ -94,6 +94,7 @@ select.inp option { background: var(--panel); }
 .shot { display: flex; gap: 12px; align-items: center; padding: 10px; border: 1px solid var(--line-2); border-radius: var(--radius); background: var(--ink); }
 .shot .thumb { width: 46px; height: 92px; border-radius: 7px; background: #1f1f23 center/cover no-repeat; flex: none; display: grid; place-items: center; color: var(--faint); }
 .shot .thumb svg { width: 18px; height: 18px; }
+.shot .thumb.thumb-sq { width: 64px; height: 64px; background-size: contain; background-color: #2a2a2f; }
 .shot .meta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 7px; }
 .shot .meta small { color: var(--muted); font-size: 12px; }
 

@@ -149,7 +149,11 @@
   }
   const usedAssetIds = (d) => {
     const ids = new Set();
-    d.slides.forEach((s) => { if (s.shot) ids.add(s.shot); if (s.bg && s.bg.image) ids.add(s.bg.image); });
+    d.slides.forEach((s) => {
+      if (s.shot) ids.add(s.shot);
+      if (s.bg && s.bg.image) ids.add(s.bg.image);
+      (s.badges || []).forEach((b) => { if (b && b.asset) ids.add(b.asset); });
+    });
     if (d.meta && d.meta.icon) ids.add(d.meta.icon);
     return ids;
   };
@@ -674,7 +678,10 @@
     canvas.addEventListener('dblclick', (e) => {
       const h = hitTest(id, canvas, e);
       if (h && h.hit === 'text') { showTab('text'); const t = $('f-headline'); if (t) { t.focus(); t.select(); } return; }
-      if (h && h.hit === 'badge') { selBadge = h.badge; showTab('elements'); const t = document.querySelector('.el.on input'); if (t) { t.focus(); t.select(); } return; }
+      if (h && h.hit === 'badge') {
+        const bd = ((doc.slides[indexOfId(id)] || {}).badges || []).find((x) => x.id === h.badge);
+        if (bd && bd.kind === 'image') { pickFiles({ type: 'element', id, badge: bd.id }, false); return; }
+        selBadge = h.badge; showTab('elements'); const t = document.querySelector('.el.on input'); if (t) { t.focus(); t.select(); } return; }
       pickFiles({ type: 'slide', id }, false);
     });
 
@@ -745,19 +752,62 @@
     pickTarget = null;
   });
 
+  const isSvg = (f) => f.type === 'image/svg+xml' || /\.svg$/i.test(f.name || '');
+  /** Turns an SVG into a large PNG so it renders and exports the same in every browser. */
+  async function svgToPng(file) {
+    let txt = await file.text();
+    // SVGs with only a viewBox have no size in some browsers, so give them one
+    const tag = (txt.match(/<svg\b[^>]*>/i) || [''])[0];
+    let vw = 0, vh = 0;
+    const vb = tag.match(/viewBox\s*=\s*["']\s*[-\d.]+[\s,]+[-\d.]+[\s,]+([\d.]+)[\s,]+([\d.]+)/i);
+    if (vb) { vw = +vb[1]; vh = +vb[2]; }
+    const num = (a) => { const m = tag.match(new RegExp('\\s' + a + '\\s*=\\s*["\']\\s*([\\d.]+)(px)?\\s*["\']', 'i')); return m ? +m[1] : 0; };
+    let w = num('width'), h = num('height');
+    if (!w || !h) {
+      if (!vw || !vh) { vw = vw || 512; vh = vh || 512; }
+      w = vw; h = vh;
+      const fixed = tag.replace(/\s(width|height)\s*=\s*["'][^"']*["']/gi, '').replace(/^<svg\b/i, `<svg width="${w}" height="${h}"`);
+      txt = txt.replace(tag, fixed);
+    }
+    const img = await decodeBlob(new Blob([txt], { type: 'image/svg+xml' }));
+    const k = 2048 / Math.max(w, h);
+    const c = P.mkCanvas(w * k, h * k);
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    URL.revokeObjectURL(img.src);
+    return new Promise((res, rej) => c.toBlob((b) => (b ? res(b) : rej(new Error('svg'))), 'image/png'));
+  }
+
   async function filesToAssets(files) {
-    const imgs = [...files].filter((f) => /^image\//.test(f.type) || /\.(png|jpe?g|webp|gif|avif)$/i.test(f.name || ''));
-    if (!imgs.length) { toast('Please choose an image (PNG, JPG or WebP).'); return []; }
+    const imgs = [...files].filter((f) => /^image\//.test(f.type) || /\.(png|jpe?g|webp|gif|avif|svg)$/i.test(f.name || ''));
+    if (!imgs.length) { toast('Please choose an image (PNG, JPG, WebP or SVG).'); return []; }
     const ids = [];
     let bad = 0;
     for (const f of imgs) {
-      try { ids.push(await addAsset(f)); } catch (e) { bad++; }
+      try { ids.push(await addAsset(isSvg(f) ? await svgToPng(f) : f)); } catch (e) { bad++; }
     }
-    if (bad) toast(bad === imgs.length ? 'That image couldn’t be opened. Try PNG, JPG or WebP.' : `${bad} image(s) couldn’t be opened.`);
+    if (bad) toast(bad === imgs.length ? 'That image couldn’t be opened. Try PNG, JPG, WebP or SVG.' : `${bad} image(s) couldn’t be opened.`);
     return ids;
   }
 
   async function handleFiles(files, target) {
+    if (target.type === 'element') {
+      // new image elements (logos, icons, stickers, SVGs), or replace one element's image
+      const s = doc.slides[indexOfId(target.id)];
+      if (!s) return;
+      const ids = await filesToAssets(target.badge ? [...files].slice(0, 1) : [...files].slice(0, 8));
+      if (!ids.length) return;
+      if (!Array.isArray(s.badges)) s.badges = [];
+      let last = null;
+      const old = target.badge && s.badges.find((b) => b.id === target.badge);
+      if (old) { old.asset = ids[0]; last = old; }
+      else ids.forEach((asset) => { last = newBadge('image', s); last.asset = asset; s.badges.push(last); });
+      selObj = { slide: s.id, kind: 'badge', id: last.id };
+      selBadge = last.id;
+      commit();
+      requestRender(s.id);
+      if (tab !== 'elements') showTab('elements'); else buildPanel();
+      return;
+    }
     if (target.type === 'bg') {
       const [id] = await filesToAssets([...files].slice(0, 1));
       const s = doc.slides[indexOfId(target.id)];
@@ -1371,6 +1421,7 @@
     else if (kind === 'stat') Object.assign(b, { text: c ? c.stat[0] : def.text, sub: c ? c.stat[1] : def.sub });
     else if (kind === 'review') Object.assign(b, { text: c ? c.review[0] : def.text, sub: c ? c.review[1] : def.sub, author: c ? c.review[2] : def.author, x: 0.5, size: 42 });
     else if (kind === 'sparkle') Object.assign(b, { size: 36 });
+    else if (kind === 'image') Object.assign(b, { asset: null, size: 40, opacity: 1, shadow: false, radius: 0 });
     return b;
   }
 
@@ -1378,9 +1429,17 @@
     const s = cur();
     if (!Array.isArray(s.badges)) s.badges = [];
     s.ui = Object.assign(P.defaultUI(), s.ui || {});
-    panel.append(el('h2', '', 'Elements'), el('p', 'hint', `Badges on slide ${sel + 1}. Drag them on the slide to move them.`));
+    panel.append(el('h2', '', 'Elements'), el('p', 'hint', `Badges and images on slide ${sel + 1}. Drag them on the slide to move them.`));
+    const upImg = el('button', 'btn btn-block', `${ic('image')}<span>Upload logo, icon or image</span>`);
+    upImg.type = 'button';
+    upImg.id = 'f-add-image';
+    upImg.title = 'PNG, JPG, WebP or SVG. Transparent PNGs and SVGs work best.';
+    upImg.onclick = () => pickFiles({ type: 'element', id: s.id }, true);
+    upImg.style.marginBottom = '8px';
+    panel.append(upImg);
     const add = el('div', 'addgrid');
     Object.entries(P.BADGE_KINDS).forEach(([k, def]) => {
+      if (k === 'image') return; // added with the upload button above
       const b = el('button', 'btn btn-sm', `${ic('plus')}<span>${def.label}</span>`);
       b.type = 'button';
       b.dataset.kind = k;
@@ -1415,7 +1474,28 @@
       head.append(acts);
       box.append(head);
       const k = b.kind;
-      if (k !== 'sparkle') box.append(textInput(k === 'review' ? 'Title' : k === 'stat' ? 'Number' : 'Text', () => b.text, (v) => { b.text = v; }));
+      if (k === 'image') {
+        const sh = el('div', 'shot');
+        const img = getImage(b.asset);
+        const th = el('div', 'thumb thumb-sq', img ? '' : ic('image'));
+        if (img) th.style.backgroundImage = `url("${img.src}")`;
+        const meta = el('div', 'meta');
+        meta.append(el('small', '', img ? `${img.naturalWidth} × ${img.naturalHeight}px` : 'Image missing'));
+        const btns = el('div', 'btns');
+        const rep = el('button', 'btn btn-sm', 'Replace');
+        rep.type = 'button';
+        rep.onclick = () => pickFiles({ type: 'element', id: s.id, badge: b.id }, false);
+        btns.append(rep);
+        meta.append(btns);
+        sh.append(th, meta);
+        box.append(sh);
+        const ri = el('div', 'row2');
+        ri.append(slider('Opacity', { min: 0.1, max: 1, step: 0.01, get: () => (b.opacity == null ? 1 : b.opacity), set: (v) => { b.opacity = v; }, fmt: pct, reset: 1 }));
+        ri.append(slider('Rounded', { min: 0, max: 1, step: 0.01, get: () => b.radius || 0, set: (v) => { b.radius = v; }, fmt: pct, reset: 0 }));
+        box.append(ri);
+        box.append(toggle('Shadow', () => b.shadow, (v) => { b.shadow = v; }));
+      }
+      if (k !== 'sparkle' && k !== 'image') box.append(textInput(k === 'review' ? 'Title' : k === 'stat' ? 'Number' : 'Text', () => b.text, (v) => { b.text = v; }));
       if (k === 'rating' || k === 'laurel' || k === 'stat') box.append(textInput('Small text', () => b.sub, (v) => { b.sub = v; }));
       if (k === 'review') {
         const ta = el('textarea', 'inp');

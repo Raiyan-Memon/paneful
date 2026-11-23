@@ -318,7 +318,9 @@
     Object.assign(slide.device, { type: 'auto', rot: 0, tiltX: 0, tiltY: 0, x: 0.5, scale: 0.74, shadow: 0.6, color: p.frame, corner: 0.06 });
     P.applyLayout(slide, spec.layout || 'top');
     Object.assign(slide.device, clone(spec.device || {}));
-    slide.badges = clone(spec.badges || []);
+    // theme badges are swapped out, but the user's own uploaded images/logos stay put
+    const own = (slide.badges || []).filter((b) => b && b.kind === 'image');
+    slide.badges = clone(spec.badges || []).concat(own);
     slide.ui = { font: F.body, chipBg: p.chipBg, chipText: p.chipText, star: '#FFC83D', card: p.card, accent: p.accent };
     slide.theme = theme.id;
     slide.variant = variant;

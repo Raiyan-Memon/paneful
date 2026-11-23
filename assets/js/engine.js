@@ -567,6 +567,7 @@
     stat:    { label: 'Stat',        text: '2M+', sub: 'happy users' },
     review:  { label: 'Review',      text: 'Changed my mornings', sub: '“Simple, calm and genuinely useful. I use it every single day.”', author: 'Priya, India' },
     sparkle: { label: 'Sparkle' },
+    image:   { label: 'Image' }, // uploaded logo / icon / sticker / SVG (b.asset = image id)
   };
   P.defaultUI = () => ({ font: 'Geist', chipBg: '#FFFFFF', chipText: '#16161A', star: '#FFC83D', card: 'rgba(255,255,255,0.12)', accent: '#7FA88A' });
 
@@ -606,11 +607,41 @@
   function noShadow(ctx) { ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0; }
 
   /** Draws one element centred at (0,0). Returns its { w, h }. */
-  function drawBadge(ctx, b, fs, ui, text) {
+  function drawBadge(ctx, b, fs, ui, text, getImage) {
     const F = (w, k, it) => P.fontString(ui.font || 'Geist', w, fs * (k || 1), it);
     ctx.textBaseline = 'middle';
     ctx.textAlign = 'left';
     const kind = b.kind;
+    if (kind === 'image') {
+      // size sets the longer side: size 40 → 200 units of the 1000-wide reference box
+      const img = b.asset && getImage ? getImage(b.asset) : null;
+      const long = fs * 5;
+      const iw = img ? img.naturalWidth || img.width : 1, ih = img ? img.naturalHeight || img.height : 1;
+      const w = iw >= ih ? long : (long * iw) / ih, h = iw >= ih ? (long * ih) / iw : long;
+      ctx.save();
+      ctx.globalAlpha = b.opacity == null ? 1 : b.opacity;
+      if (!img) {
+        ctx.fillStyle = 'rgba(127,127,127,0.18)';
+        rr(ctx, -w / 2, -h / 2, w, h, fs * 0.6);
+        ctx.fill();
+      } else {
+        let src = img;
+        const r = (b.radius || 0) * Math.min(w, h) * 0.5;
+        if (r > 0) {
+          // round the corners off-screen so the shadow follows the rounded shape
+          const c = mkCanvas(Math.max(1, Math.ceil(w)), Math.max(1, Math.ceil(h)));
+          const g = c.getContext('2d');
+          rr(g, 0, 0, c.width, c.height, r);
+          g.clip();
+          g.drawImage(img, 0, 0, c.width, c.height);
+          src = c;
+        }
+        if (b.shadow) softShadow(ctx, fs, 1.3);
+        ctx.drawImage(src, -w / 2, -h / 2, w, h);
+      }
+      ctx.restore();
+      return { w, h };
+    }
     if (kind === 'sparkle') {
       const r = fs * 1.3;
       ctx.save();
@@ -760,7 +791,7 @@
   }
 
   /** Draws a slide's elements. Returns hit boxes [{ id, x, y, w, h }] in canvas px. */
-  P.drawBadges = function (ctx, slide, s, ox, oy, ref) {
+  P.drawBadges = function (ctx, slide, s, ox, oy, ref, getImage) {
     const ui = Object.assign(P.defaultUI(), slide.ui || {});
     const out = [];
     (slide.badges || []).forEach((b) => {
@@ -770,7 +801,7 @@
       ctx.translate(cx, cy);
       if (b.rot) ctx.rotate(b.rot * D2R);
       let m = { w: 0, h: 0 };
-      try { m = drawBadge(ctx, b, fs, ui, slide.text); } catch (e) { console.warn('element', e); }
+      try { m = drawBadge(ctx, b, fs, ui, slide.text, getImage); } catch (e) { console.warn('element', e); }
       noShadow(ctx);
       ctx.restore();
       out.push({ id: b.id, x: cx - m.w / 2, y: cy - m.h / 2, w: m.w, h: m.h, cx, cy, rot: b.rot || 0 });
@@ -825,7 +856,7 @@
       const img = slide.shot && env.getImage ? env.getImage(slide.shot) : null;
       boxes.device = placeDevice(ctx, dv, type, img, ox + dv.x * ref.w * s, oy + dv.y * ref.h * s, bodyW, {});
     }
-    boxes.badges = P.drawBadges(ctx, slide, s, ox, oy, ref);
+    boxes.badges = P.drawBadges(ctx, slide, s, ox, oy, ref, env.getImage);
 
     const t = slide.text;
     const maxW = ref.w * s * (t.width || 0.86);
