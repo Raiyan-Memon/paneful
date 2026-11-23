@@ -791,10 +791,12 @@
   }
 
   /** Draws a slide's elements. Returns hit boxes [{ id, x, y, w, h }] in canvas px. */
-  P.drawBadges = function (ctx, slide, s, ox, oy, ref, getImage) {
+  P.drawBadges = function (ctx, slide, s, ox, oy, ref, getImage, behind) {
     const ui = Object.assign(P.defaultUI(), slide.ui || {});
     const out = [];
+    // array order is stacking order; behind = true draws only the elements set to sit behind the phone
     (slide.badges || []).forEach((b) => {
+      if (behind != null && !!b.behind !== behind) return;
       const fs = (b.size || 34) * s;
       const cx = ox + b.x * ref.w * s, cy = oy + b.y * ref.h * s;
       ctx.save();
@@ -804,7 +806,7 @@
       try { m = drawBadge(ctx, b, fs, ui, slide.text, getImage); } catch (e) { console.warn('element', e); }
       noShadow(ctx);
       ctx.restore();
-      out.push({ id: b.id, x: cx - m.w / 2, y: cy - m.h / 2, w: m.w, h: m.h, cx, cy, rot: b.rot || 0 });
+      out.push({ id: b.id, x: cx - m.w / 2, y: cy - m.h / 2, w: m.w, h: m.h, cx, cy, rot: b.rot || 0, behind: !!b.behind });
     });
     return out;
   };
@@ -847,6 +849,7 @@
     ctx.save();
     P.drawBackground(ctx, W, H, slide.bg, env.getImage);
 
+    const back = P.drawBadges(ctx, slide, s, ox, oy, ref, env.getImage, true);
     const dv = slide.device;
     const type = dv.type === 'auto' ? env.frame || 'iphone' : dv.type;
     if (type !== 'hidden') {
@@ -856,7 +859,7 @@
       const img = slide.shot && env.getImage ? env.getImage(slide.shot) : null;
       boxes.device = placeDevice(ctx, dv, type, img, ox + dv.x * ref.w * s, oy + dv.y * ref.h * s, bodyW, {});
     }
-    boxes.badges = P.drawBadges(ctx, slide, s, ox, oy, ref, env.getImage);
+    boxes.badges = back.concat(P.drawBadges(ctx, slide, s, ox, oy, ref, env.getImage, false));
 
     const t = slide.text;
     const maxW = ref.w * s * (t.width || 0.86);

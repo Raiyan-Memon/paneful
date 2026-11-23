@@ -31,6 +31,8 @@
     right: '<path d="m9.5 6 6 6-6 6"/>',
     copy: '<rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 8.5V6a1.5 1.5 0 0 0-1.5-1.5H6A1.5 1.5 0 0 0 4.5 6v8A1.5 1.5 0 0 0 6 15.5h2.5"/>',
     trash: '<path d="M4.5 7h15M10 11v6M14 11v6M6 7l1 12.5h10L18 7M9.5 7V4.5h5V7"/>',
+    toFront: '<rect x="8" y="8" width="11" height="11" rx="2" fill="currentColor" fill-opacity=".25"/><path d="M5 15.5V6a1 1 0 0 1 1-1h9.5"/>',
+    toBack: '<rect x="5" y="5" width="11" height="11" rx="2" fill="currentColor" fill-opacity=".25"/><path d="M19 8.5V18a1 1 0 0 1-1 1H8.5"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
     upload: '<path d="M12 15V4m0 0L7.5 8.5M12 4l4.5 4.5M5 19.5h14"/>',
     grip: '<circle cx="9" cy="7" r="1.1" fill="currentColor"/><circle cx="15" cy="7" r="1.1" fill="currentColor"/><circle cx="9" cy="12" r="1.1" fill="currentColor"/><circle cx="15" cy="12" r="1.1" fill="currentColor"/><circle cx="9" cy="17" r="1.1" fill="currentColor"/><circle cx="15" cy="17" r="1.1" fill="currentColor"/>',
@@ -461,9 +463,17 @@
     const pad = 8 * DPR;
     const tb = c.boxes.text && { x: c.boxes.text.x - pad, y: c.boxes.text.y - pad, w: c.boxes.text.w + pad * 2, h: c.boxes.text.h + pad * 2 };
     const bs = c.boxes.badges || [];
-    for (let i = bs.length - 1; i >= 0; i--) if (inRot(bs[i], x, y, 4 * DPR)) return { hit: 'badge', badge: bs[i].id, k, c, box: bs[i] };
+    const hitBadge = (behind) => {
+      for (let i = bs.length - 1; i >= 0; i--) if (!!bs[i].behind === behind && inRot(bs[i], x, y, 4 * DPR)) return { hit: 'badge', badge: bs[i].id, k, c, box: bs[i] };
+      return null;
+    };
+    // top to bottom: elements in front, text, phone, elements behind the phone
+    const front = hitBadge(false);
+    if (front) return front;
     if (inBox(tb, x, y)) return { hit: 'text', k, c, box: c.boxes.text };
     if (inRot(c.boxes.device, x, y, 0)) return { hit: 'device', k, c, box: c.boxes.device };
+    const back = hitBadge(true);
+    if (back) return back;
     return { hit: null, k, c };
   }
 
@@ -580,6 +590,23 @@
     c.hover.classList.add('on');
   }
   /** Nudge / delete the selected object from the keyboard. Returns true if handled. */
+  /** Moves an element to the top ('front') or bottom ('back') of its slide's stacking order. */
+  function restack(s, id, where) {
+    const i = (s.badges || []).findIndex((x) => x.id === id);
+    if (i < 0) return;
+    const [b] = s.badges.splice(i, 1);
+    // back = behind everything, including the phone and its screenshot; front = above everything
+    const hasPhone = s.device.type !== 'hidden';
+    if (where === 'front') { b.behind = false; s.badges.push(b); }
+    else { b.behind = hasPhone; s.badges.unshift(b); }
+    selObj = { slide: s.id, kind: 'badge', id };
+    selBadge = id;
+    commit();
+    requestRender(s.id);
+    if (tab === 'elements') buildPanel();
+    toast(where === 'front' ? 'Brought to front' : hasPhone ? 'Sent behind the phone' : 'Sent to back');
+  }
+
   function keySelected(e) {
     if (!selObj) return false;
     const s = doc.slides.find((x) => x.id === selObj.slide);
@@ -1425,6 +1452,134 @@
     return b;
   }
 
+  let keepLayersInView = false;
+  /** Short name for an element in the layers list. */
+  function layerName(b) {
+    const label = P.BADGE_KINDS[b.kind].label;
+    const t = (b.text || '').trim();
+    return t ? `${label} · ${t.length > 22 ? t.slice(0, 21) + '…' : t}` : label;
+  }
+
+  /**
+   * Layers list, front at the top. The phone is a fixed row: elements dragged below it sit behind the phone.
+   * (The headline always sits between the front elements and the phone.)
+   */
+  function layersList(s) {
+    const wrap = el('div', 'layers');
+    wrap.append(h3('Layers'));
+    const list = el('div', 'layer-list');
+    const hasPhone = s.device.type !== 'hidden';
+    // display order, top → bottom
+    const items = [];
+    s.badges.slice().reverse().forEach((b) => { if (!b.behind || !hasPhone) items.push(b); });
+    if (hasPhone) {
+      items.push('phone');
+      s.badges.slice().reverse().forEach((b) => { if (b.behind) items.push(b); });
+    }
+    items.forEach((it) => {
+      if (it === 'phone') {
+        const on = selObj && selObj.slide === s.id && selObj.kind === 'device';
+        const row = el('div', 'layer layer-phone' + (on ? ' on' : ''));
+        row.append(el('span', 'layer-grip', ic('grip')), el('i', 'layer-th layer-ic', ic('device')), el('span', 'layer-name', 'Phone &amp; screenshot'));
+        row.dataset.key = 'phone';
+        row.title = 'Drag to move the phone above or below elements';
+        list.append(row);
+        return;
+      }
+      const b = it;
+      const row = el('div', 'layer' + (b.id === selBadge ? ' on' : ''));
+      row.dataset.key = b.id;
+      const img = b.kind === 'image' ? getImage(b.asset) : null;
+      const th = el('i', 'layer-th');
+      if (img) th.style.backgroundImage = `url("${img.src}")`;
+      const name = el('span', 'layer-name');
+      name.textContent = layerName(b); // user text: never as HTML
+      row.append(el('span', 'layer-grip', ic('grip')), th, name);
+      row.title = 'Drag to change the order · click to select';
+      list.append(row);
+    });
+
+    // drag to reorder (pointer events, so it works with mouse, pen and touch)
+    // The grabbed row follows the pointer; the rows it passes slide out of its way.
+    let dr = null;
+    const rows = () => [...list.children];
+    list.addEventListener('pointerdown', (e) => {
+      const row = e.target.closest('.layer');
+      if (!row || e.button !== 0) return;
+      e.preventDefault();
+      list.setPointerCapture(e.pointerId);
+      const all = rows();
+      const rects = all.map((r) => r.getBoundingClientRect());
+      const from = all.indexOf(row);
+      const step = all.length > 1 ? rects[1].top - rects[0].top : rects[0].height;
+      dr = { row, all, from, to: from, step, y0: e.clientY, moved: false,
+        mids: rects.map((r) => r.top + r.height / 2),
+        minDy: rects[0].top - rects[from].top, maxDy: rects[rects.length - 1].top - rects[from].top };
+    });
+    list.addEventListener('pointermove', (e) => {
+      const d = dr;
+      if (!d) return;
+      if (!d.moved && Math.abs(e.clientY - d.y0) < 4) return;
+      if (!d.moved) { d.moved = true; d.row.classList.add('dragging'); list.classList.add('sorting'); }
+      const dy = clamp(e.clientY - d.y0, d.minDy, d.maxDy);
+      d.row.style.transform = `translateY(${dy}px)`;
+      // the slot is decided by where the grabbed row's centre is, not by the pointer
+      const c = d.mids[d.from] + dy;
+      let to = d.from;
+      // take a neighbour's slot once the grabbed row is more than halfway into it (so the end slots are reachable)
+      const half = d.step / 2;
+      while (to < d.all.length - 1 && c > d.mids[to + 1] - half) to++;
+      while (to > 0 && c < d.mids[to - 1] + half) to--;
+      d.to = to;
+      d.all.forEach((r, i) => {
+        if (r === d.row) return;
+        const shift = d.from < i && i <= to ? -d.step : to <= i && i < d.from ? d.step : 0;
+        r.style.transform = shift ? `translateY(${shift}px)` : '';
+      });
+    });
+    const end = () => {
+      if (!dr) return;
+      const d = dr;
+      dr = null;
+      list.classList.remove('sorting');
+      d.all.forEach((r) => { r.style.transform = ''; r.classList.remove('dragging'); });
+      const id = d.row.dataset.key;
+      const sel1 = () => (id === 'phone' ? { slide: s.id, kind: 'device' } : { slide: s.id, kind: 'badge', id });
+      if (!d.moved) {
+        // plain click: select the element (or the phone)
+        setSel(sel1());
+        keepLayersInView = true;
+        buildPanel();
+        return;
+      }
+      if (d.to === d.from) return; // dropped back where it was
+      const keys = d.all.map((r) => r.dataset.key);
+      keys.splice(d.from, 1);
+      keys.splice(d.to, 0, id);
+      const byId = new Map(s.badges.map((b) => [b.id, b]));
+      let below = false;
+      const next = [];
+      keys.forEach((k) => {
+        if (k === 'phone') { below = true; return; }
+        const b = byId.get(k);
+        b.behind = hasPhone && below;
+        next.push(b);
+      });
+      s.badges = next.reverse(); // array is bottom → top
+      selObj = sel1();
+      selBadge = id === 'phone' ? null : id;
+      commit();
+      requestRender(s.id);
+      keepLayersInView = true;
+      buildPanel();
+    };
+    list.addEventListener('pointerup', end);
+    list.addEventListener('pointercancel', end);
+    wrap.append(list);
+    if (hasPhone) wrap.append(el('p', 'hint', 'Top of the list is in front. Drag below “Phone” to tuck an element behind it.'));
+    return wrap;
+  }
+
   function panelElements() {
     const s = cur();
     if (!Array.isArray(s.badges)) s.badges = [];
@@ -1456,7 +1611,10 @@
     });
     panel.append(add);
     if (!s.badges.length) panel.append(el('p', 'empty', 'No elements on this slide yet. Add one above.'));
-    s.badges.forEach((b) => {
+    else panel.append(layersList(s));
+    // same order as the layers list: front first
+    const back = s.device.type !== 'hidden';
+    s.badges.slice().reverse().sort((a, c) => (back ? (a.behind ? 1 : 0) - (c.behind ? 1 : 0) : 0)).forEach((b) => {
       const box = el('div', 'el' + (b.id === selBadge ? ' on' : ''));
       box.dataset.id = b.id;
       const head = el('div', 'el-head');
@@ -1470,7 +1628,15 @@
       del.title = 'Delete';
       del.setAttribute('aria-label', 'Delete element');
       del.onclick = () => { s.badges = s.badges.filter((x) => x !== b); if (selBadge === b.id) selBadge = null; commit(); requestRender(s.id); buildPanel(); };
-      acts.append(dup, del);
+      const fr = el('button', 'icon-btn', ic('toFront'));
+      fr.title = 'Bring to front (Ctrl+])';
+      fr.setAttribute('aria-label', 'Bring to front');
+      fr.onclick = () => restack(s, b.id, 'front');
+      const bk = el('button', 'icon-btn', ic('toBack'));
+      bk.title = 'Send to back (Ctrl+[)';
+      bk.setAttribute('aria-label', 'Send to back');
+      bk.onclick = () => restack(s, b.id, 'back');
+      acts.append(fr, bk, dup, del);
       head.append(acts);
       box.append(head);
       const k = b.kind;
@@ -1513,6 +1679,7 @@
       r.append(slider('Size', { min: 12, max: 160, get: () => b.size || 40, set: (v) => { b.size = v; } }));
       r.append(slider('Rotate', { min: -180, max: 180, step: 0.5, get: () => b.rot || 0, set: (v) => { b.rot = v; }, fmt: deg, reset: 0 }));
       box.append(r);
+      if (s.device.type !== 'hidden') box.append(toggle('Behind the phone', () => b.behind, (v) => { b.behind = v; }));
       box.addEventListener('focusin', () => {
         if (!selObj || selObj.id !== b.id) setSel({ slide: s.id, kind: 'badge', id: b.id });
       });
@@ -1537,7 +1704,9 @@
       panel.append(rm);
     }
     const on = panel.querySelector('.el.on');
-    if (on) requestAnimationFrame(() => on.scrollIntoView({ block: 'nearest' }));
+    // jump to the selected card, except when the click/drag came from the layers list (keep the list in view)
+    if (on && !keepLayersInView) requestAnimationFrame(() => on.scrollIntoView({ block: 'nearest' }));
+    keepLayersInView = false;
   }
 
   /* ───────── export ───────── */
@@ -1713,7 +1882,7 @@
   });
 
   function showKeys() {
-    const rows = [['Undo', `${MOD} Z`], ['Redo', `${MOD} Shift Z`], ['Duplicate slide', `${MOD} D`], ['Delete slide', 'Delete'], ['Previous / next slide', '← →'], ['Export', `${MOD} E`], ['Paste screenshot', `${MOD} V`]];
+    const rows = [['Undo', `${MOD} Z`], ['Redo', `${MOD} Shift Z`], ['Duplicate slide', `${MOD} D`], ['Delete slide', 'Delete'], ['Previous / next slide', '← →'], ['Export', `${MOD} E`], ['Element to front / back', `${MOD} ] [`], ['Paste screenshot', `${MOD} V`]];
     dialog('Keyboard shortcuts', `<table class="keys">${rows.map(([a, k]) => `<tr><td>${a}</td><td>${k.split(' ').map((x) => `<kbd>${x}</kbd>`).join(' ')}</td></tr>`).join('')}</table>`, 'Done', false);
   }
 
@@ -1841,6 +2010,12 @@
     if (mod && key === 'e') { e.preventDefault(); openExport(); return; }
     if (typing) return;
     if (e.key === 'Escape' && selObj) { setSel(null); return; }
+    if (mod && (e.key === ']' || e.key === '[') && selObj && selObj.kind === 'badge') {
+      e.preventDefault();
+      const s = doc.slides.find((x) => x.id === selObj.slide);
+      if (s) restack(s, selObj.id, e.key === ']' ? 'front' : 'back');
+      return;
+    }
     if (!mod && t && t.tagName !== 'INPUT' && keySelected(e)) { e.preventDefault(); return; }
     const onControl = t && t.tagName === 'INPUT'; // sliders/checkboxes use arrow keys themselves
     if (onControl && e.key.startsWith('Arrow')) return;
