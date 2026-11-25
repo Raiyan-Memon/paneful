@@ -1,0 +1,13 @@
+{
+  "name": "Paneful",
+  "short_name": "Paneful",
+  "description": "Free App Store and Google Play screenshot maker that runs in your browser.",
+  "start_url": "/app/",
+  "display": "standalone",
+  "background_color": "#0B0B0C",
+  "theme_color": "#0B0B0C",
+  "icons": [
+    { "src": "/assets/img/apple-touch-icon.png", "sizes": "180x180", "type": "image/png" },
+    { "src": "/assets/img/favicon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}

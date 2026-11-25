@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://paneful.raiyanmemon.in/sitemap.xml
