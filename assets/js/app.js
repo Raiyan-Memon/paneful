@@ -2055,11 +2055,25 @@
     // landing page theme links: /app/?theme=paper (undoable)
     const qs = new URLSearchParams(location.search);
     const qTheme = qs.get('theme');
-    if (qTheme) {
+    const qSize = qs.get('size');
+    const qExport = qs.get('export');
+    if (qTheme || qSize || qExport) {
       try { history.replaceState(null, '', location.pathname); } catch (e) { /* file:// */ }
+    }
+    if (qTheme) {
       const qv = +qs.get('v') || 0;
       if (P.themeById(qTheme)) applyThemeAll(qTheme, qv);
     }
+    // landing page size links: /app/?size=gpPhone
+    if (qSize && P.SIZES[qSize] && qSize !== doc.size) {
+      doc.size = qSize;
+      save();
+      syncSize();
+      buildStrip();
+      buildPanel();
+    }
+    // feature graphic page: /app/?export=feature (pre-selects it in the export dialog)
+    if (qExport === 'feature') exportSel.add('feature');
     window.PANEFUL_READY = true;
   }
   // test hook (read-only view of state)
